@@ -12,7 +12,7 @@ type SeverityTestResult struct {
 
 var severityTests = []SeverityTestResult{
 	{
-		Input:  "Ok",
+		Input:  "OK",
 		Output: "0",
 	},
 	{

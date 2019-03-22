@@ -1,6 +1,12 @@
 package omreport
 
 import (
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
 	"strconv"
 	"strings"
 )
@@ -21,6 +27,29 @@ type Value struct {
 	Name   string
 	Value  string
 	Labels map[string]string
+}
+
+// RedfishChassisPower1 contains a metrics OdataId, Name and Status for json
+type RedfishStatus struct {
+	OdataID string `json:"@odata.id"`
+	Name    string `json:"Name"`
+	Status  struct {
+		Health string `json:Health`
+		State  string `json:State`
+	} `json:"Status"`
+}
+
+type BmcAddress struct {
+	IPv4 struct {
+		Address string `json:"address"`
+	} `json:ipv4`
+}
+type BmcUser struct {
+	Support struct {
+		Password struct {
+			Raw string `json:"raw"`
+		} `json:"password"`
+	} `json:support`
 }
 
 const (
@@ -53,6 +82,9 @@ func readOmreport(f func([]string), omreportExecutable string, args ...string) {
 	}, omreportExecutable, args...)
 }
 
+var client *http.Client
+var results = make(map[string][]byte)
+
 func (or *OMReport) getOMReportExecutable() string {
 	if or.Options != nil {
 		return or.Options.OMReportExecutable
@@ -65,6 +97,7 @@ func (or *OMReport) readReport(f func([]string), omreportExecutable string, args
 }
 
 // Chassis returns the chassis status
+/*
 func (or *OMReport) Chassis() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -78,6 +111,76 @@ func (or *OMReport) Chassis() ([]Value, error) {
 			Labels: map[string]string{"component": component},
 		})
 	}, or.getOMReportExecutable(), "chassis")
+	return values, nil
+}
+*/
+func (or *OMReport) Chassis() ([]Value, error) {
+
+	address, err := ioutil.ReadFile("/etc/neco/bmc-address.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcAddress := BmcAddress{}
+	if err := json.Unmarshal(address, &BmcAddress); err != nil {
+		log.Fatal(err)
+	}
+
+	user, err := ioutil.ReadFile("/etc/neco/bmc-user.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcUser := BmcUser{}
+	if err := json.Unmarshal(user, &BmcUser); err != nil {
+		log.Fatal(err)
+	}
+
+	client = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	values := []Value{}
+	urls := []string{
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Power/PowerSupplies/PSU.Slot.1",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Power/PowerSupplies/PSU.Slot.2",
+	}
+	RedfishStatus := RedfishStatus{}
+
+	for _, v := range urls {
+		resp, err := client.Get(v)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("%s", body)
+		}
+		err = json.Unmarshal(body, &RedfishStatus)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+
+		values = append(values, Value{
+			Name:   "chassis_status",
+			Value:  severity(RedfishStatus.Status.Health),
+			Labels: map[string]string{"component": strings.Replace(RedfishStatus.Name, " ", "_", -1)},
+		})
+	}
+
+	// sample string data
+	values = append(values, Value{
+		Name:   "chassis_status",
+		Value:  severity("Ok"),
+		Labels: map[string]string{"component": "Processors"},
+	})
 	return values, nil
 }
 
