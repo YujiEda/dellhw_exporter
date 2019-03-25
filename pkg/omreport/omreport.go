@@ -39,6 +39,59 @@ type RedfishStatus struct {
 	} `json:"Status"`
 }
 
+type Memory struct {
+	OdataID       string `json:"@odata.id"`
+	Name          string `json:"Name"`
+	MemorySummary struct {
+		Status struct {
+			Health string `json:Health`
+			State  string `json:State`
+		} `json:"Status"`
+	} `json:"MemorySummary"`
+}
+
+type TPM struct {
+	OdataID        string `json:"@odata.id"`
+	Name           string `json:"Name"`
+	TrustedModules []struct {
+		InterfaceType string `json:"InterfaceType"`
+		Status        struct {
+			State string `json:State`
+		} `json:"Status"`
+	} `json:"TrustedModules"`
+}
+
+type RedfishMembers struct {
+	Members []struct {
+		OdataID string `json:"@odata.id"`
+	} `json:"Members"`
+}
+
+type DriveDevices struct {
+	Devices []struct {
+		Name   string `json:"Name"`
+		Status struct {
+			Health string `json:Health`
+			State  string `json:State`
+		} `json:"Status"`
+	} `json:"Devices"`
+}
+
+type Power struct {
+	OdataID    string `json:"@odata.id"`
+	Name       string `json:"Name"`
+	Redundancy []struct {
+		Name          string `json:"Name"`
+		RedundancySet []struct {
+			OdataID string `json:"@odata.id"`
+		} `json:"RedundancySet"`
+		Status struct {
+			Health string `json:Health`
+			State  string `json:State`
+		} `json:"Status"`
+	} `json:"Redundancy"`
+}
+
 type BmcAddress struct {
 	IPv4 struct {
 		Address string `json:"address"`
@@ -142,10 +195,12 @@ func (or *OMReport) Chassis() ([]Value, error) {
 		},
 	}
 	values := []Value{}
+	//Chassis global status and idrac status
 	urls := []string{
 		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1",
-		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Power/PowerSupplies/PSU.Slot.1",
-		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Power/PowerSupplies/PSU.Slot.2",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Managers/iDRAC.Embedded.1",
+		//		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Power/PowerSupplies/PSU.Slot.1",
+		//		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Power/PowerSupplies/PSU.Slot.2",
 	}
 	RedfishStatus := RedfishStatus{}
 
@@ -185,6 +240,7 @@ func (or *OMReport) Chassis() ([]Value, error) {
 }
 
 // Fans returns the fan status and if supported RPM reading
+/*
 func (or *OMReport) Fans() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -211,8 +267,77 @@ func (or *OMReport) Fans() ([]Value, error) {
 	}, or.getOMReportExecutable(), "chassis", "fans")
 	return values, nil
 }
+*/
+func (or *OMReport) Fans() ([]Value, error) {
+	address, err := ioutil.ReadFile("/etc/neco/bmc-address.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcAddress := BmcAddress{}
+	if err := json.Unmarshal(address, &BmcAddress); err != nil {
+		log.Fatal(err)
+	}
+
+	user, err := ioutil.ReadFile("/etc/neco/bmc-user.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcUser := BmcUser{}
+	if err := json.Unmarshal(user, &BmcUser); err != nil {
+		log.Fatal(err)
+	}
+
+	client = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	values := []Value{}
+	urls := []string{
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Sensors/Fans/0x17%7C%7CFan.Embedded.1",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Sensors/Fans/0x17%7C%7CFan.Embedded.2",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Sensors/Fans/0x17%7C%7CFan.Embedded.3",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Sensors/Fans/0x17%7C%7CFan.Embedded.4",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Sensors/Fans/0x17%7C%7CFan.Embedded.5",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Sensors/Fans/0x17%7C%7CFan.Embedded.6",
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Chassis/System.Embedded.1/Thermal/Redundancy/iDRAC.Embedded.1%23SystemBoardFanRedundancy",
+	}
+	RedfishStatus := RedfishStatus{}
+
+	for _, v := range urls {
+		resp, err := client.Get(v)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("%s", body)
+		}
+		err = json.Unmarshal(body, &RedfishStatus)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+
+		values = append(values, Value{
+			Name:   "chassis_fan_status",
+			Value:  severity(RedfishStatus.Status.Health),
+			Labels: map[string]string{"component": strings.Replace(RedfishStatus.Name, " ", "_", -1)},
+		})
+	}
+
+	return values, nil
+}
 
 // Memory returns the memory status
+
+/*
 func (or *OMReport) Memory() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -230,8 +355,71 @@ func (or *OMReport) Memory() ([]Value, error) {
 	}, or.getOMReportExecutable(), "chassis", "memory")
 	return values, nil
 }
+*/
+
+func (or *OMReport) Memory() ([]Value, error) {
+	address, err := ioutil.ReadFile("/etc/neco/bmc-address.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcAddress := BmcAddress{}
+	if err := json.Unmarshal(address, &BmcAddress); err != nil {
+		log.Fatal(err)
+	}
+
+	user, err := ioutil.ReadFile("/etc/neco/bmc-user.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcUser := BmcUser{}
+	if err := json.Unmarshal(user, &BmcUser); err != nil {
+		log.Fatal(err)
+	}
+
+	client = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	values := []Value{}
+	urls := []string{
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Systems/System.Embedded.1",
+	}
+	Memory := Memory{}
+
+	for _, v := range urls {
+		resp, err := client.Get(v)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("%s", body)
+		}
+		err = json.Unmarshal(body, &Memory)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+
+		values = append(values, Value{
+			Name:   "chassis_memory_status",
+			Value:  severity(Memory.MemorySummary.Status.Health),
+			Labels: map[string]string{"component": strings.Replace(Memory.Name, " ", "_", -1)},
+		})
+	}
+
+	return values, nil
+}
 
 // System returns the system status
+/*
 func (or *OMReport) System() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -247,8 +435,83 @@ func (or *OMReport) System() ([]Value, error) {
 	}, or.getOMReportExecutable(), "system")
 	return values, nil
 }
+*/
+func (or *OMReport) System() ([]Value, error) {
+	address, err := ioutil.ReadFile("/etc/neco/bmc-address.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcAddress := BmcAddress{}
+	if err := json.Unmarshal(address, &BmcAddress); err != nil {
+		log.Fatal(err)
+	}
+
+	user, err := ioutil.ReadFile("/etc/neco/bmc-user.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcUser := BmcUser{}
+	if err := json.Unmarshal(user, &BmcUser); err != nil {
+		log.Fatal(err)
+	}
+
+	client = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	values := []Value{}
+	urls := []string{
+		"https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Systems/System.Embedded.1",
+	}
+	RedfishStatus := RedfishStatus{}
+	TPM := TPM{}
+
+	for _, v := range urls {
+		resp, err := client.Get(v)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("%s", body)
+		}
+		err = json.Unmarshal(body, &RedfishStatus)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		err = json.Unmarshal(body, &TPM)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+
+		for _, t := range TPM.TrustedModules {
+			values = append(values, Value{
+				Name:   "system_status",
+				Value:  severity(t.Status.State),
+				Labels: map[string]string{"component": strings.Replace(t.InterfaceType, " ", "_", -1)},
+			})
+
+		}
+		values = append(values, Value{
+			Name:   "system_status",
+			Value:  severity(RedfishStatus.Status.Health),
+			Labels: map[string]string{"component": strings.Replace(RedfishStatus.Name, " ", "_", -1)},
+		})
+	}
+
+	return values, nil
+}
 
 // StorageBattery returns the storage battery ("RAID batteries")
+// The Redfish is nothing
 func (or *OMReport) StorageBattery() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -266,6 +529,7 @@ func (or *OMReport) StorageBattery() ([]Value, error) {
 }
 
 // StorageController returns the storage controller status
+/*
 func (or *OMReport) StorageController() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -282,8 +546,105 @@ func (or *OMReport) StorageController() ([]Value, error) {
 	}, or.getOMReportExecutable(), "storage", "controller")
 	return values, nil
 }
+*/
+func (or *OMReport) StorageController() ([]Value, error) {
+	address, err := ioutil.ReadFile("/etc/neco/bmc-address.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcAddress := BmcAddress{}
+	if err := json.Unmarshal(address, &BmcAddress); err != nil {
+		log.Fatal(err)
+	}
+
+	user, err := ioutil.ReadFile("/etc/neco/bmc-user.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	BmcUser := BmcUser{}
+	if err := json.Unmarshal(user, &BmcUser); err != nil {
+		log.Fatal(err)
+	}
+
+	client = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
+	values := []Value{}
+	RedfishMembers := RedfishMembers{}
+
+	url := "https://support:" + BmcUser.Support.Password.Raw + "@" + BmcAddress.IPv4.Address + "/redfish/v1/Systems/System.Embedded.1/Storage/Controllers/"
+
+	resp, err := client.Get(url)
+	if err != nil {
+		panic(err.Error())
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("%s", body)
+	}
+	err = json.Unmarshal(body, &RedfishMembers)
+	if err != nil {
+		fmt.Println(err.Error())
+	}
+	urls := []string{}
+	for _, v := range RedfishMembers.Members {
+		urls = append(urls, "https://support:"+BmcUser.Support.Password.Raw+"@"+BmcAddress.IPv4.Address+v.OdataID)
+	}
+
+	RedfishStatus := RedfishStatus{}
+	DriveDevices := DriveDevices{}
+
+	for _, v := range urls {
+		resp, err := client.Get(v)
+		if err != nil {
+			panic(err.Error())
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("%s", body)
+		}
+		err = json.Unmarshal(body, &RedfishStatus)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+		err = json.Unmarshal(body, &DriveDevices)
+		if err != nil {
+			fmt.Println(err.Error())
+		}
+
+		values = append(values, Value{
+			Name:   "storage_controller_status",
+			Value:  severity(RedfishStatus.Status.Health),
+			Labels: map[string]string{"component": strings.Replace(RedfishStatus.Name, " ", "_", -1)},
+		})
+		for _, d := range DriveDevices.Devices {
+			values = append(values, Value{
+				Name:   "storage_device_status",
+				Value:  severity(d.Status.Health),
+				Labels: map[string]string{"component": strings.Replace(d.Name, " ", "_", -1)},
+			})
+		}
+	}
+
+	return values, nil
+}
 
 // StorageEnclosure returns the storage enclosure status
+// The Redfish is nothing
 func (or *OMReport) StorageEnclosure() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -301,6 +662,7 @@ func (or *OMReport) StorageEnclosure() ([]Value, error) {
 }
 
 // StoragePdisk is called from the controller func, since it needs the encapsulating IDs.
+// The Redfish is nothing
 func (or *OMReport) StoragePdisk(cid string) ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -322,6 +684,7 @@ func (or *OMReport) StoragePdisk(cid string) ([]Value, error) {
 }
 
 // StorageVdisk returns the storage vdisk status
+// The Redfish is nothing
 func (or *OMReport) StorageVdisk() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
@@ -339,6 +702,7 @@ func (or *OMReport) StorageVdisk() ([]Value, error) {
 }
 
 // Ps returns the power supply state and if supported input/output wattage
+
 func (or *OMReport) Ps() ([]Value, error) {
 	values := []Value{}
 	or.readReport(func(fields []string) {
